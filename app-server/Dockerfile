@@ -6,7 +6,7 @@ COPY requirements.txt .
 
 RUN pip install -r requirements.txt
 
-ADD app.py /app
+ADD *.py /app
  
 EXPOSE 5000
 

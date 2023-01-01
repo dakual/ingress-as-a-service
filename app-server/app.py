@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import socket, threading, time, logging, sys
+from ingress import IngressServer
 
 logging.basicConfig(
   level    = logging.INFO,
@@ -23,22 +24,23 @@ class Forward:
       logging.info(e)
       return False
 
-
-class TheProxyServer:
+class ProxyServer(threading.Thread):
   threads = []
   channel = {}
 
   def __init__(self, host, port):
+    threading.Thread.__init__(self)
+
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     self.server.bind((host, port))
     self.server.listen(200)
+    self.active = True
 
-  def main(self):
-    logging.info("Server started")
-    logging.info("Waiting for request...")
+  def run(self):
+    logging.info("Proxy server started.")
 
-    while True:
+    while self.active:
       time.sleep(0.0001)
       clientSocket, clientAddress = self.server.accept()
 
@@ -55,10 +57,9 @@ class TheProxyServer:
       threading.Thread.__init__(self)
       self.csocket = clientsocket
       self.client  = clientAddress
-      self.active  = True
 
     def run(self):
-      logging.info("New connection from: " + str(self.client))
+      logging.info("New proxy request connection from: " + str(self.client))
 
       self.request = self.getContent(self.csocket)
       if self.request:
@@ -112,21 +113,24 @@ class TheProxyServer:
       return body 
 
     def disconnect(self):
-      logging.info("Client at " + str(self.client) + " disconnected...")
+      logging.info("Proxt request at " + str(self.client) + " disconnected...")
       self.csocket.close()
-      TheProxyServer.threads.remove(self)
+      ProxyServer.threads.remove(self)
 
 if __name__ == '__main__':
   host = socket.gethostbyname(socket.gethostname())
   port = 5000
-  proxyServer = TheProxyServer(host, port)
+  proxyServer   = ProxyServer(host, port)
+  ingressServer = IngressServer(host, 5001)
 
   try:
-    proxyServer.main()
+    proxyServer.start()
+    ingressServer.start()
   except KeyboardInterrupt:
     print("Keyboard interrupt")
 
-    for th in proxyServer.threads:
-      th.active = False
+    proxyServer.active = False
+    for ins in ingressServer.threads:
+      ins.active = False
 
     sys.exit(1)
