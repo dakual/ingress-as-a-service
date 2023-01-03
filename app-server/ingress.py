@@ -1,49 +1,50 @@
-import socket, threading, time, logging, sys
+import socket, threading, time, logging, sys, select
+from utils import Request
+
 
 class IngressServer:
-  threads = []
-  channel = {}
+  clients = []
 
   def __init__(self, host, port):
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # self.server.setblocking(0)
     self.server.bind((host, port))
-    self.server.listen(200) 
+    self.server.listen(5) 
 
   def start(self):
     logging.info("Ingress server started.")
-
-    while True:
-      time.sleep(0.0001)
-      clientSocket, clientAddress = self.server.accept()
-
-      newthread = self.ClientThread(clientAddress, clientSocket)
-      newthread.start()
-      self.threads.append(newthread)
+    self.clients.append(self.server)
     
-  class ClientThread(threading.Thread):
-    def __init__(self,clientAddress, clientsocket):
-      threading.Thread.__init__(self)
-      self.csocket = clientsocket
-      self.client  = clientAddress
-      self.active  = True
+    while True:
+      time.sleep(0.001)
+      readable, writable, exceptional = select.select(self.clients, [], [])
+      for s in readable:
+        if s == self.server:
+          connection, client_address = s.accept()
+          # connection.setblocking(0)
+          logging.info("Client connected: %s:%s" % (connection.getpeername()))
+          self.clients.append(connection)
+        else:
+          try:
+            data = Request(s).getContent() # s.recv(1024)
+            if len(data) > 0:
+              logging.info("Data received: %s:%s" % (s.getpeername()))
+              # logging.info(data.decode('ascii').rstrip())
+            else:
+              raise Exception("Client connection null")
+          except Exception as e:
+            self.disconnect(s)
 
-    def run(self):
-      logging.info("New ingress connection from: " + str(self.client))
+  def disconnect(self, s):
+    logging.info("Client disconnected: %s:%s" % (s.getpeername()))
+    
+    if s in self.clients:
+      self.clients.remove(s)
+      s.close()
 
-      while self.active:
-        try:
-          data = self.csocket.recv(1024)
-          if not data:
-            print('No connection, Bye 2')
-            break
-        except socket.error as e:
-          print('No connection, Bye 1')
-          break
+  @classmethod
+  def getClients(cls):
+    return cls.clients[1]
 
-      self.disconnect()
 
-    def disconnect(self):
-      logging.info("Ingress connection at " + str(self.client) + " disconnected...")
-      self.csocket.close()
-      IngressServer.threads.remove(self)
