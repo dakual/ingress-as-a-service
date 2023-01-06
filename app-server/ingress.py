@@ -4,6 +4,7 @@ from utils import Request
 
 class IngressServer:
   clients = []
+  active  = True
 
   def __init__(self, host, port):
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -16,7 +17,7 @@ class IngressServer:
     logging.info("Ingress server started.")
     self.clients.append(self.server)
     
-    while True:
+    while self.active:
       time.sleep(0.001)
       readable, writable, exceptional = select.select(self.clients, [], [])
       for s in readable:
@@ -24,7 +25,8 @@ class IngressServer:
           connection, client_address = s.accept()
           # connection.setblocking(0)
           logging.info("Client connected: %s:%s" % (connection.getpeername()))
-          self.clients.append(connection)
+          # self.clients.append(connection)
+          self.clients.insert(1, connection)
         else:
           try:
             data = Request(s).getContent() # s.recv(1024)

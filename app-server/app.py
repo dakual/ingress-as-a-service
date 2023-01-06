@@ -1,7 +1,8 @@
 #!/usr/bin/env python
-import socket, logging, sys
-from ingress import IngressServer
-from proxy import ProxyServer
+import logging
+import sys
+import proxy
+import client
 
 logging.basicConfig(
   level    = logging.INFO,
@@ -11,20 +12,22 @@ logging.basicConfig(
   ]
 )
 
-host          = socket.gethostbyname(socket.gethostname())
-ingressServer = IngressServer(host, 6000)
-proxyServer   = ProxyServer(host, 5000, IngressServer)
-
 
 if __name__ == '__main__':
+  host         = "127.0.0.1" # socket.gethostbyname(socket.gethostname())
+  proxyServer  = proxy.Server(host, 5000)
+  clientServer = client.Server(host, 6000)
+  
+  
   try:
     proxyServer.start()
-    ingressServer.start()
+    clientServer.start()
   except KeyboardInterrupt:
     print("Keyboard interrupt")
 
-    proxyServer.active = False
-    for ins in ingressServer.clients:
-      ins.active = False
+    proxyServer.active   = False
+    # ingressServer.active = False
+    # for ins in ingressServer.clients:
+    #   ins.active = False
 
     sys.exit(1)

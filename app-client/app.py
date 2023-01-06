@@ -1,4 +1,9 @@
-import socket, threading, time, logging, sys
+import socket
+import threading
+import logging
+import time
+import select
+import sys
 
 logging.basicConfig(
   level    = logging.INFO,
@@ -8,135 +13,142 @@ logging.basicConfig(
   ]
 )
 
-nextPingTime = time.time()
+def main():  
+  localSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  localSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  localSocket.connect(("localhost", 8080))
+  localSocket.setblocking(0)
 
-host = "127.0.0.1"
-port = 6000
-
-serverSocket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-serverSocket.connect((host,port))
-#server.setblocking(0)
-
-
-class Request:
-  HTTP_HEADER_DELIMITER = b'\r\n\r\n'
-  CONTENT_LENGTH_FIELD  = b'Content-Length:'
-  ACTION_FIELD          = b'X-Action:'
-  ONE_BYTE_LENGTH       = 1
-
-  def __init__(self, socket):
-    self.socket = socket
+  serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  serverSocket.connect(("localhost", 6000))
+  serverSocket.setblocking(0)
+  
+  serverData = bytes()
+  localData  = bytes()
+  terminate  = False
+  
+  while not terminate:
+    inputs  = [serverSocket, localSocket]
+    outputs = []
     
-  def getContent(self):
-    header = self.getHeader()
-    if not header:
-      return
-
-    header = header.replace(b'localhost:5000', b'localhost:8080')
-    length = self.getLength(header)
-    body   = self.getBody(length)
-
-    return b''.join([header, body])
-
-  def getAction(self, header):
-    for line in header.split(b'\r\n'):
-      if self.ACTION_FIELD in line:
-        return line[len(self.ACTION_FIELD):]
-    return b''
-
-  def getLength(self, header):
-    for line in header.split(b'\r\n'):
-      if self.CONTENT_LENGTH_FIELD in line:
-        return int(line[len(self.CONTENT_LENGTH_FIELD):])
-    return 0
-
-  def getHeader(self):
-    header = bytes() 
-    chunk  = bytes()
-
-    while self.HTTP_HEADER_DELIMITER not in header:
-      chunk = self.socket.recv(self.ONE_BYTE_LENGTH)
-      if not chunk:
-        break
-      else:
-        header += chunk
-
-    return header  
+    if len(serverData) > 0:
+      outputs.append(serverSocket)
       
-  def getBody(self, content_length):
-    body = bytes()
-    data = bytes()
-
-    while True:
-      data = self.socket.recv(content_length)
-      if len(data)<=0:
-        break
-      else:
-        body += data
-
-    return body 
-
-
-
-class Forward:
-  def __init__(self):
-    self.forward = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-  def start(self, host="localhost", port=8080):
-    try:
-      self.forward.connect((host, port))
-      return self.forward
-    except Exception as e:
-      logging.error(e)
-      return False
-
-forward = Forward().start()
-
-def ping():
-  pinging  = b'GET / HTTP/1.1\r\n'
-  pinging += b'Host: localhost\r\n'
-  pinging += b'X-Action: ping\r\n'
-  pinging += b'Connection: close\r\n'
-  pinging += b'Content-Length: 0\r\n'
-  pinging += b'\r\n'
-
-  serverSocket.send(pinging)
-
-def main():   
-  nextPingTime = time.time()
-  while True:
-    time.sleep(0.001)
-
-    request = Request(serverSocket).getContent()
-    if request:
-      forward.send(request)
-      logging.info("request received")
-      logging.info(request.decode())
-      
-      response = Request(forward).getContent()
-      if response:
-        serverSocket.send(response)
-        logging.info("response sended")
-        logging.info(response.decode())
-
-
-    # now = time.time()
-    # if (now >= nextPingTime):
-    #   nextPingTime = now + 3.0
-    #   ping()
-
-      
-
-    # data = server.recv(1024)
-    # if data:
-    #   print('Received message from the server :', str(data.decode('UTF-8')))
-
+    if len(localData) > 0:
+      outputs.append(localSocket)
     
+    inputsReady, outputsReady, errorsReady = select.select(inputs, outputs, [], 1.0)
+    for inp in inputsReady:
+      if inp == serverSocket:
+        try:
+          data = serverSocket.recv(4096)
+        except Exception as e:
+          logging.info("Exception:", e)
+        
+        if data != None:
+          if len(data) > 0:
+            localData += data
+            logging.info("request:"  + localData.decode('latin1'))
+            
+      elif inp == localSocket:
+        try:
+          data = localSocket.recv(4096)
+        except Exception as e:
+          logging.info("Exception:", e)
+          
+        if data != None:
+          if len(data) > 0:
+            serverData += data
+            logging.info("response:"  + serverData.decode('latin1'))
 
+    for out in outputsReady:
+      if out == serverSocket and len(serverData) > 0:
+        bytesWritten = serverSocket.send(serverData)
+        if bytesWritten > 0:
+          serverData = serverData[bytesWritten:]
+      elif out == localSocket and len(localData) > 0:
+        bytesWritten = localSocket.send(localData)
+        if bytesWritten > 0:
+          localData = localData[bytesWritten:]
+  
+  serverSocket.close()
+  localSocket.close()
+
+  logging.info("Proxy client terminated")
 
 if __name__ == '__main__':
   try:
     main()
   except KeyboardInterrupt:
-    serverSocket.close()
     print("Keyboard interrupt")
+
+# import socket, threading, time, logging, sys
+
+# logging.basicConfig(
+#   level    = logging.INFO,
+#   format   = "%(asctime)s [%(levelname)s] %(message)s",
+#   handlers = [
+#     logging.StreamHandler(sys.stdout)
+#   ]
+# )
+
+# nextPingTime = time.time()
+
+# host = "127.0.0.1"
+# port = 6000
+
+# serverSocket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+# serverSocket.connect((host,port))
+# #server.setblocking(0)
+
+
+
+# class Forward:
+#   def __init__(self):
+#     self.forward = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+#   def start(self, host="localhost", port=8080):
+#     try:
+#       self.forward.connect((host, port))
+#       return self.forward
+#     except Exception as e:
+#       logging.error(e)
+#       return False
+  
+#   def disconnect(self):
+#     self.forward.close()
+
+# # forward = Forward().start()
+
+# def ping():
+#   pinging  = b'GET / HTTP/1.1\r\n'
+#   pinging += b'Host: localhost\r\n'
+#   pinging += b'X-Action: ping\r\n'
+#   pinging += b'Connection: close\r\n'
+#   pinging += b'Content-Length: 0\r\n'
+#   pinging += b'\r\n'
+
+#   serverSocket.send(pinging)
+
+# def main():   
+#   nextPingTime = time.time()
+#   while True:
+#     time.sleep(0.001)
+
+#     now = time.time()
+#     if (now >= nextPingTime):
+#       nextPingTime = now + 3.0
+#       ping()
+
+#     # data = server.recv(1024)
+#     # if data:
+#     #   print('Received message from the server :', str(data.decode('UTF-8')))
+
+
+# if __name__ == '__main__':
+#   try:
+#     main()
+#   except KeyboardInterrupt:
+#     serverSocket.close()
+#     print("Keyboard interrupt")

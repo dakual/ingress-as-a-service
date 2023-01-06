@@ -11,12 +11,13 @@ class Request:
     
   def getContent(self):
     header = self.getHeader()
-    if not header:
+    #header = header.replace(b'localhost:5000', b'localhost')
+    if len(header) <= 0:
       return
 
-    action = self.getAction(header)
-    if b'ping' in action:
-      logging.info("Ping: %s:%s" % (self.socket.getpeername()))
+    # action = self.getAction(header)
+    # if b'ping' in action:
+    #   logging.info("Ping: %s:%s" % (self.socket.getpeername()))
 
     length = self.getLength(header)
     body   = self.getBody(length)
